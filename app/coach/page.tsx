@@ -25,15 +25,13 @@ import {
 import Link from "next/link"
 import { ChatWidget } from "@/components/chat-widget"
 import type { CareerAnalysis, CareerPlan, ChatMessage, CoachResponse } from "@/lib/types"
-import { coachStreamPost, createGoal } from "@/lib/api"
+import { coachPost, createGoal } from "@/lib/api"
 
 interface ChatBubbleProps {
   message: ChatMessage
-  isStreaming?: boolean
-  streamContent?: string
 }
 
-function ChatBubble({ message, isStreaming, streamContent }: ChatBubbleProps) {
+function ChatBubble({ message }: ChatBubbleProps) {
   const isUser = message.role === "user"
   const isSystem = message.role === "system"
 
@@ -48,14 +46,7 @@ function ChatBubble({ message, isStreaming, streamContent }: ChatBubbleProps) {
       >
         <div className="whitespace-pre-wrap">
           {message.content}
-          {isStreaming && streamContent && <span className="opacity-70">{streamContent}</span>}
         </div>
-        {isStreaming && (
-          <div className="flex items-center space-x-2 mt-2 opacity-70">
-            <Loader2 className="w-4 h-4 animate-spin" />
-            <span className="text-sm">Coach está digitando...</span>
-          </div>
-        )}
       </div>
     </div>
   )
@@ -66,8 +57,7 @@ export default function CoachPage() {
   const [plan, setPlan] = useState<CareerPlan | null>(null)
   const [messages, setMessages] = useState<ChatMessage[]>([])
   const [input, setInput] = useState("")
-  const [isStreaming, setIsStreaming] = useState(false)
-  const [streamContent, setStreamContent] = useState("")
+  const [isLoading, setIsLoading] = useState(false)
   const [lastResponse, setLastResponse] = useState<CoachResponse | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [isInitialized, setIsInitialized] = useState(false)
@@ -106,7 +96,7 @@ export default function CoachPage() {
   // Auto-scroll to bottom
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" })
-  }, [messages, streamContent])
+  }, [messages])
 
   // Initialize with context injection
   useEffect(() => {
@@ -141,39 +131,31 @@ plan=${plan ? JSON.stringify(plan) : "{}"}`,
       setInput("")
     }
 
-    setIsStreaming(true)
-    setStreamContent("")
+    setIsLoading(true)
     setError(null)
     setLastResponse(null)
 
     try {
-      await coachStreamPost(
-        { messages: currentMessages },
-        (chunk: string) => {
-          setStreamContent((prev) => prev + chunk)
-        },
-        (response: CoachResponse) => {
-          setIsStreaming(false)
-          setStreamContent("")
-          setLastResponse(response)
+      const response = await coachPost({ messages: currentMessages })
+      console.log("Received response:", response)
+      
+      setIsLoading(false)
+      setLastResponse(response)
 
-          // Add coach response to messages
-          const coachMessage: ChatMessage = {
-            role: "assistant",
-            content: response.message,
-          }
-          setMessages((prev) => [...prev, coachMessage])
-        },
-      )
+      // Add coach response to messages
+      const coachMessage: ChatMessage = {
+        role: "assistant",
+        content: response.message,
+      }
+      setMessages((prev) => [...prev, coachMessage])
     } catch (err) {
-      setIsStreaming(false)
-      setStreamContent("")
+      setIsLoading(false)
       setError(err instanceof Error ? err.message : "Erro ao conectar com o coach")
     }
   }
 
   const handleKeyPress = (e: React.KeyboardEvent) => {
-    if (e.key === "Enter" && !e.shiftKey && input.trim() && !isStreaming) {
+    if (e.key === "Enter" && !e.shiftKey && input.trim() && !isLoading) {
       e.preventDefault()
       handleSendMessage()
     }
@@ -283,10 +265,10 @@ plan=${plan ? JSON.stringify(plan) : "{}"}`,
                 <CardTitle className="flex items-center space-x-2">
                   <MessageSquare className="w-5 h-5 text-primary" />
                   <span>Chat com Coach</span>
-                  {isStreaming && (
+                  {isLoading && (
                     <Badge variant="secondary" className="ml-auto">
                       <Loader2 className="w-3 h-3 animate-spin mr-1" />
-                      Conectado
+                      Processando
                     </Badge>
                   )}
                 </CardTitle>
@@ -300,17 +282,18 @@ plan=${plan ? JSON.stringify(plan) : "{}"}`,
                     <ChatBubble
                       key={index}
                       message={message}
-                      isStreaming={isStreaming && index === messages.length - 1 && message.role === "assistant"}
-                      streamContent={streamContent}
                     />
                   ))}
 
-                {isStreaming && messages[messages.length - 1]?.role === "user" && (
-                  <ChatBubble
-                    message={{ role: "assistant", content: "" }}
-                    isStreaming={true}
-                    streamContent={streamContent}
-                  />
+                {isLoading && messages[messages.length - 1]?.role === "user" && (
+                  <div className="flex justify-start mb-4">
+                    <div className="max-w-[80%] p-4 rounded-lg bg-white border border-slate-200 text-slate-900">
+                      <div className="flex items-center space-x-2">
+                        <Loader2 className="w-4 h-4 animate-spin" />
+                        <span className="text-sm">Coach está pensando...</span>
+                      </div>
+                    </div>
+                  </div>
                 )}
 
                 <div ref={messagesEndRef} />
@@ -338,11 +321,11 @@ plan=${plan ? JSON.stringify(plan) : "{}"}`,
                     onChange={(e) => setInput(e.target.value)}
                     onKeyPress={handleKeyPress}
                     placeholder="Digite sua pergunta sobre carreira..."
-                    disabled={isStreaming}
+                    disabled={isLoading}
                     className="flex-1"
                   />
-                  <Button onClick={() => handleSendMessage()} disabled={!input.trim() || isStreaming} size="icon">
-                    {isStreaming ? <Loader2 className="w-4 h-4 animate-spin" /> : <Send className="w-4 h-4" />}
+                  <Button onClick={() => handleSendMessage()} disabled={!input.trim() || isLoading} size="icon">
+                    {isLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Send className="w-4 h-4" />}
                   </Button>
                 </div>
               </div>
