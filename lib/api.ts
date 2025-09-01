@@ -1,8 +1,6 @@
 import type { CareerAnalysis, CareerPlan, ChatRequest, CoachResponse, Goal } from "./types"
 
-const API_BASE = "https://localhost:7069"
-
-//process.env.NEXT_PUBLIC_API_BASE ||
+const API_BASE = process.env.NEXT_PUBLIC_API_BASE || "https://mentorai-fhhjfxf7axemckdh.brazilsouth-01.azurewebsites.net"
 
 // CV Analysis API
 export async function analyzeCv(file: File): Promise<CareerAnalysis> {
@@ -19,7 +17,10 @@ export async function analyzeCv(file: File): Promise<CareerAnalysis> {
     throw new Error(error.error || "Falha ao analisar CV")
   }
 
-  return response.json()
+  // Some backends wrap the payload like { "CareerAnalysis": { ... } }
+  const data: any = await response.json()
+  const analysis = (data?.CareerAnalysis ?? data?.careerAnalysis ?? data) as CareerAnalysis
+  return analysis
 }
 
 // Roadmap Generation API
@@ -51,6 +52,66 @@ export async function coachStreamPost(
   onChunk: (text: string) => void,
   onDone: (json: CoachResponse) => void,
 ): Promise<void> {
+  type StreamState = { collectingFinal: boolean; aggregateBuffer: string; textBuffer: string }
+
+  const sanitizeJsonString = (input: string): string =>
+    Array.from(input)
+      .filter((ch) => {
+        const code = ch.charCodeAt(0)
+        return code === 9 || code === 10 || code === 13 || code >= 32
+      })
+      .join("")
+      .trim()
+
+  const tryParseCoachResponse = (finalJson: string, fallbackMessage: string): CoachResponse => {
+    if (!finalJson || finalJson.trim().length === 0) {
+      return { message: fallbackMessage, next_actions: [], tips: [], progressHooks: [] }
+    }
+    try {
+      return JSON.parse(finalJson)
+    } catch {
+      return JSON.parse(sanitizeJsonString(finalJson))
+    }
+  }
+
+  const safeJsonParse = (s: string): object | null => {
+    try {
+      return JSON.parse(s)
+    } catch {
+      return null
+    }
+  }
+
+  const pickText = (obj: object | null): string | null => {
+    if (!obj || typeof obj !== "object") return null
+    const rec = obj as Record<string, unknown>
+    const candidates = [rec.delta, rec.text, rec.message, rec.content]
+    for (const c of candidates) if (typeof c === "string" && c.trim()) return c
+    return null
+  }
+
+  const processLine = (line: string, state: StreamState) => {
+    if (line.startsWith("event: done")) {
+      state.collectingFinal = true
+      return
+    }
+    if (!line.startsWith("data: ")) return
+    const payload = line.slice(6)
+    // Always aggregate payload to reconstruct final JSON even before 'done'
+    if (payload.trim() !== "{}") {
+      state.aggregateBuffer += payload
+    }
+    // Only stream readable text chunks
+    if (!state.collectingFinal) {
+      const parsed = safeJsonParse(payload)
+      const text = pickText(parsed)
+      if (text != null) {
+        state.textBuffer += text
+        onChunk(text)
+      }
+    }
+  }
+
   const response = await fetch(`${API_BASE}/api/coach/stream`, {
     method: "POST",
     headers: {
@@ -66,7 +127,7 @@ export async function coachStreamPost(
 
   const reader = response.body.getReader()
   const decoder = new TextDecoder()
-  let textBuffer = ""
+  const state: StreamState = { collectingFinal: false, aggregateBuffer: "", textBuffer: "" }
 
   while (true) {
     const { value, done } = await reader.read()
@@ -74,34 +135,27 @@ export async function coachStreamPost(
 
     const chunk = decoder.decode(value)
     const lines = chunk.split(/\r?\n/)
-
-    for (const line of lines) {
-      if (line.startsWith("data: ")) {
-        const payload = line.slice(6)
-        textBuffer += payload
-        onChunk(payload)
-      } else if (line.startsWith("event: done")) {
-        // Stream finished
-      }
-    }
+    for (const line of lines) processLine(line, state)
   }
 
-  // Parse final JSON
-  let obj: CoachResponse = {
-    message: "",
-    next_actions: [],
-    tips: [],
-    progressHooks: [],
+  const extractCandidate = (s: string): string => {
+    const start = s.indexOf("{")
+    const end = s.lastIndexOf("}")
+    const candidate = start >= 0 && end > start ? s.slice(start, end + 1) : s
+    return sanitizeJsonString(candidate)
   }
 
-  try {
-    obj = JSON.parse(textBuffer)
-  } catch {
-    const clean = textBuffer.replace(/\u0000/g, "").trim()
-    obj = JSON.parse(clean)
+  const obj = tryParseCoachResponse(extractCandidate(state.aggregateBuffer), state.textBuffer)
+
+  // Normalize to expected CoachResponse shape
+  const normalized: CoachResponse = {
+    message: (obj as any).message ?? (obj as any).text ?? "",
+    next_actions: (obj as any).next_actions ?? (obj as any).nextActions ?? [],
+    tips: (obj as any).tips ?? (obj as any).suggestions ?? [],
+    progressHooks: (obj as any).progressHooks ?? [],
   }
 
-  onDone(obj)
+  onDone(normalized)
 }
 
 // Goals API

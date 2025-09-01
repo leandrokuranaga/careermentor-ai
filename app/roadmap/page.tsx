@@ -46,7 +46,9 @@ export default function RoadmapPage() {
     const savedAnalysis = localStorage.getItem("careerAnalysis")
     if (savedAnalysis) {
       try {
-        setAnalysis(JSON.parse(savedAnalysis))
+  const parsed = JSON.parse(savedAnalysis)
+  const normalized = (parsed?.CareerAnalysis ?? parsed?.careerAnalysis ?? parsed) as CareerAnalysis
+  setAnalysis(normalized)
       } catch (e) {
         console.error("Failed to parse saved analysis:", e)
       }

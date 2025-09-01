@@ -71,6 +71,8 @@ export default function CoachPage() {
   const [lastResponse, setLastResponse] = useState<CoachResponse | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [isInitialized, setIsInitialized] = useState(false)
+  const [saveSuccess, setSaveSuccess] = useState(false)
+  const [actionsSaved, setActionsSaved] = useState(false)
 
   const messagesEndRef = useRef<HTMLDivElement>(null)
   const inputRef = useRef<HTMLInputElement>(null)
@@ -82,7 +84,9 @@ export default function CoachPage() {
 
     if (savedAnalysis) {
       try {
-        setAnalysis(JSON.parse(savedAnalysis))
+        const parsed = JSON.parse(savedAnalysis)
+        const normalized = (parsed?.CareerAnalysis ?? parsed?.careerAnalysis ?? parsed) as CareerAnalysis
+        setAnalysis(normalized)
       } catch (e) {
         console.error("Failed to parse saved analysis:", e)
       }
@@ -108,7 +112,7 @@ export default function CoachPage() {
   useEffect(() => {
     if (isInitialized && analysis && messages.length === 0) {
       const contextMessage: ChatMessage = {
-        role: "user",
+        role: "system",
         content: `CONTEXT:
 analysis=${JSON.stringify(analysis)}
 plan=${plan ? JSON.stringify(plan) : "{}"}`,
@@ -123,6 +127,11 @@ plan=${plan ? JSON.stringify(plan) : "{}"}`,
       handleSendMessage([contextMessage, initialMessage])
     }
   }, [isInitialized, analysis, plan])
+
+  // Reset 'saved' state when a new coach response arrives
+  useEffect(() => {
+    setActionsSaved(false)
+  }, [lastResponse])
 
   const handleSendMessage = async (messagesToSend?: ChatMessage[]) => {
     const currentMessages = messagesToSend || [...messages, { role: "user" as const, content: input }]
@@ -177,7 +186,9 @@ plan=${plan ? JSON.stringify(plan) : "{}"}`,
   }
 
   const handleSaveAsGoal = async () => {
-    if (!lastResponse || lastResponse.next_actions.length === 0) return
+    if (!lastResponse?.next_actions?.length) {
+      return
+    }
 
     try {
       const goal = {
@@ -194,8 +205,10 @@ plan=${plan ? JSON.stringify(plan) : "{}"}`,
       await createGoal(goal)
 
       // Show success feedback
-      setError(null)
-      // You could add a toast here
+  setError(null)
+  setActionsSaved(true)
+  setSaveSuccess(true)
+  setTimeout(() => setSaveSuccess(false), 3000)
     } catch (err) {
       setError("Falha ao salvar meta: " + (err instanceof Error ? err.message : "Erro desconhecido"))
     }
@@ -247,6 +260,14 @@ plan=${plan ? JSON.stringify(plan) : "{}"}`,
 
         {analysis && (
           <div className="space-y-6">
+            {saveSuccess && (
+              <Alert>
+                <CheckCircle className="h-4 w-4" />
+                <AlertDescription>
+                  Metas salvas com sucesso! Veja em "Metas".
+                </AlertDescription>
+              </Alert>
+            )}
             {/* Header */}
             <div className="text-center space-y-4">
               <Badge className="bg-primary/10 text-primary border-primary/20">ETAPA 3: COACH IA</Badge>
@@ -328,10 +349,10 @@ plan=${plan ? JSON.stringify(plan) : "{}"}`,
             </Card>
 
             {/* Coach Response Details */}
-            {lastResponse && (
+      {lastResponse && (
               <div className="space-y-4">
                 {/* Next Actions */}
-                {lastResponse.next_actions.length > 0 && (
+        {!actionsSaved && Array.isArray(lastResponse.next_actions) && lastResponse.next_actions.length > 0 && (
                   <Card>
                     <CardHeader>
                       <CardTitle className="flex items-center justify-between">
@@ -339,7 +360,7 @@ plan=${plan ? JSON.stringify(plan) : "{}"}`,
                           <CheckCircle className="w-5 h-5 text-primary" />
                           <span>Próximas Ações</span>
                         </div>
-                        <Button variant="outline" size="sm" onClick={handleSaveAsGoal}>
+            <Button variant="outline" size="sm" onClick={handleSaveAsGoal}>
                           <Save className="w-4 h-4 mr-1" />
                           Salvar como Meta
                         </Button>
@@ -369,7 +390,7 @@ plan=${plan ? JSON.stringify(plan) : "{}"}`,
                 )}
 
                 {/* Tips */}
-                {lastResponse.tips.length > 0 && (
+                {Array.isArray(lastResponse.tips) && lastResponse.tips.length > 0 && (
                   <Card>
                     <CardHeader>
                       <CardTitle className="flex items-center space-x-2">
