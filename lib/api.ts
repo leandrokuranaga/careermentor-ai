@@ -64,6 +64,23 @@ export async function coachPost(req: ChatRequest): Promise<CoachResponse> {
   return response.json()
 }
 
+// Generic Chat API
+export async function chatPost(req: ChatRequest): Promise<{ message: string }> {
+  const response = await fetch(`${API_BASE}/api/chat`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify(req),
+  })
+
+  if (!response.ok) {
+    throw new Error("Falha ao conectar no chat")
+  }
+
+  return response.json()
+}
+
 // Goals API
 export async function getGoals(): Promise<Goal[]> {
   const response = await fetch(`${API_BASE}/api/goals`)
