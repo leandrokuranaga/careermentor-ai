@@ -19,11 +19,13 @@ import {
 import Link from "next/link"
 import { ChatWidget } from "@/components/chat-widget"
 
+type TimelineStatus = "current" | "upcoming" | "completed"
+
 export default function DashboardPage() {
   const techScore = 72
   const skillsCount = 8
 
-  const timelineItems = [
+  const timelineItems: { month: string; title: string; status: TimelineStatus }[] = [
     {
       month: "MÊS 1-2",
       title: "HTML/CSS/JavaScript Básico",
@@ -50,6 +52,12 @@ export default function DashboardPage() {
       status: "upcoming" as const,
     },
   ]
+
+  const statusColor: Record<TimelineStatus, string> = {
+    current: "bg-primary",
+    completed: "bg-green-500",
+    upcoming: "bg-slate-300",
+  }
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-50 to-slate-100">
@@ -184,17 +192,11 @@ export default function DashboardPage() {
           </CardHeader>
           <CardContent>
             <div className="space-y-4">
-              {timelineItems.map((item, index) => (
-                <div key={index} className="flex items-center space-x-4">
+              {timelineItems.map((item) => (
+                <div key={`${item.month}-${item.title}`} className="flex items-center space-x-4">
                   <div className="flex items-center space-x-3">
                     <div
-                      className={`w-4 h-4 rounded-full ${
-                        item.status === "current"
-                          ? "bg-primary"
-                          : item.status === "completed"
-                            ? "bg-green-500"
-                            : "bg-slate-300"
-                      }`}
+                      className={`w-4 h-4 rounded-full ${statusColor[item.status]}`}
                     />
                     <Badge
                       variant={item.status === "current" ? "default" : "secondary"}
